@@ -5,6 +5,7 @@
 要求**必须**先配置好一个自定义域名，以及正常可用的SSL证书（`pem`和`key`）。
 
 ## 使用
+
 ``` powershell
 # powershell
 # 克隆
@@ -23,7 +24,8 @@ go env -w GOPROXY=https://goproxy.cn,direct ; go mod tidy ; go build # 编译
 * 需要为这个账号配置对于权限（参考下面的代码）[https://ram.console.aliyun.com/policies/create](https://ram.console.aliyun.com/policies/create)
 
 自定义策略
-```json 
+
+```json
 {
   "Version": "1",
   "Statement": [
