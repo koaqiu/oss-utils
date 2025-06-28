@@ -1,5 +1,11 @@
 # OSS管理工具
 
+![GitHub Release](https://img.shields.io/github/v/release/koaqiu/oss-utils)
+![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/koaqiu/oss-utils/.github%2Fworkflows%2Fmain.yml)
+![GitHub go.mod Go version](https://img.shields.io/github/go-mod/go-version/koaqiu/oss-utils)
+![GitHub License](https://img.shields.io/github/license/koaqiu/oss-utils)
+
+
 目前唯一的功能就是 更新 `bucket`的自定义域名的SSL证书。
 
 要求**必须**先配置好一个自定义域名，以及正常可用的SSL证书（`pem`和`key`）。
