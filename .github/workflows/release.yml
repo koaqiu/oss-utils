@@ -6,6 +6,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # 关键权限
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -17,17 +19,19 @@ jobs:
         run: |
           PROJECT_NAME=$(go list -m | awk -F'/' '{print $NF}')
           VERSION=${GITHUB_REF#refs/tags/}
-          echo "PROJECT_NAME=$PROJECT_NAME" >> $GITHUB_ENV
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "project_name=$PROJECT_NAME" >> $GITHUB_ENV
+          echo "version=$VERSION" >> $GITHUB_ENV
+          echo "::set-output name=project_name::$PROJECT_NAME"
+          echo "::set-output name=version::$VERSION"
       
       - name: Install gox
-        run: go install github.com/mitchellh/gox@v1.0.1
+        run: go install github.com/mitchellh/gox@latest
       
       - name: Cross compile
         run: |
           mkdir -p build
-          gox -osarch="windows/amd64 windows/386 linux/amd64 linux/arm64 darwin/amd64 darwin/arm64" \
-              -output="build/${project_name}-${version}_{{.OS}}_{{.Arch}}"
+          ~/go/bin/gox -osarch="windows/amd64 windows/386 linux/amd64" \
+              -output="build/${{ steps.meta.outputs.project_name }}-${{ steps.meta.outputs.version }}_{{.OS}}_{{.Arch}}"
       
       - name: Create Release
         uses: softprops/action-gh-release@v1
@@ -35,7 +39,7 @@ jobs:
           files: build/*
           draft: true
           prerelease: false
-          name: ${{ env.PROJECT_NAME }} ${{ env.VERSION }}
+          name: ${{ steps.meta.outputs.project_name }} ${{ steps.meta.outputs.version }}
           body: |
-            发布版本: ${{ env.VERSION }}
-            构建时间: $(date +%Y-%m-%d)
+            发布版本: ${{ steps.meta.outputs.version }}
+            构建时间: ${{ github.event.head_commit.timestamp }}
