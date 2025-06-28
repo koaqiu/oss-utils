@@ -35,7 +35,7 @@ jobs:
           files: build/*
           draft: true
           prerelease: false
-          name: ${{ env.project_name }} ${{ env.version }}
+          name: ${{ env.PROJECT_NAME }} ${{ env.VERSION }}
           body: |
-            发布版本: ${{ env.version }}
+            发布版本: ${{ env.VERSION }}
             构建时间: $(date +%Y-%m-%d)
