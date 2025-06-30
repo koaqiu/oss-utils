@@ -12,6 +12,7 @@ import (
 
 	"github.com/aliyun/alibabacloud-oss-go-sdk-v2/oss"
 	"github.com/aliyun/alibabacloud-oss-go-sdk-v2/oss/credentials"
+	"github.com/pterm/pterm" // 引入 pterm 模块用于表格输出
 	"github.com/spf13/cobra"
 )
 
@@ -54,25 +55,44 @@ func readCertificateAndKeyFiles(certPath, keyPath string) (string, string, error
 }
 
 func printCnameList(response *oss.ListCnameResult) {
-	fmt.Println("CNAMEs for bucket:", *response.Bucket)
+	fmt.Printf("%v 的CNAME列表\n", pterm.Yellow(*response.Bucket))
 	if len(response.Cnames) == 0 {
-		fmt.Println("没有配置CNAME。请先配置CNAME。")
+		pterm.Warning.Println("没有配置CNAME。请先配置CNAME。")
 		return
 	}
-	for _, cname := range response.Cnames {
-		fmt.Println("HOST:", *cname.Domain)
-		fmt.Println("SSL Status:", *cname.Status)
-		fmt.Println("SSL CertId:", *cname.Certificate.CertId)
+	index := 1
+	// 使用 pterm 创建表格输出
+	tableData := pterm.TableData{
+		{"索引", "HOST", "状态", "SSL CertId", "SSL 过期时间"},
 	}
+	for _, cname := range response.Cnames {
+		var certId, expireTime string
+		if cname.Certificate != nil {
+			certId = *cname.Certificate.CertId
+			expireTime = *cname.Certificate.ValidEndDate
+		} else {
+			certId = "未配置"
+			expireTime = ""
+		}
+		tableData = append(tableData, []string{fmt.Sprintf("%d", index), *cname.Domain, *cname.Status, certId, expireTime})
+		index++
+	}
+	// 使用 pterm.Table 渲染表格
+	pterm.DefaultTable.WithHasHeader().WithData(tableData).Render()
 }
 
+// 修改Run函数以支持quiet模式
 var sslCmd = &cobra.Command{
 	Use:   "ssl",
 	Short: "自定义域名的SSL证书管理",
 	Long:  `检索或者更新自定义域名的SSL证书。`,
 	Run: func(cmd *cobra.Command, args []string) {
+		// 获取quiet标志的值
+		quiet, _ := cmd.Flags().GetBool("quiet")
+
 		if os.Getenv("OSS_ACCESS_KEY_ID") == "" || os.Getenv("OSS_ACCESS_KEY_SECRET") == "" {
 			fmt.Println("请设置环境变量 OSS_ACCESS_KEY_ID 和 OSS_ACCESS_KEY_SECRET")
+			os.Exit(1)
 			return
 		}
 
@@ -98,21 +118,26 @@ var sslCmd = &cobra.Command{
 		}
 
 		if !validateRegion(region, validRegions) {
+			os.Exit(1)
 			return
 		}
 
 		bucket := cmd.Flag("bucket").Value.String()
 		if !validateBucketName(bucket) {
+			os.Exit(1)
 			return
 		}
 
-		fmt.Printf("当前操作的区域: %s\n", region)
-		fmt.Printf("当前操作的Bucket名称: %s\n", bucket)
+		if !quiet {
+			fmt.Printf("当前操作的区域: %s\n", region)
+			fmt.Printf("当前操作的Bucket名称: %s\n", bucket)
+		}
 
 		certPath := cmd.Flag("cert").Value.String()
 		keyPath := cmd.Flag("key").Value.String()
 		if (certPath == "" && keyPath != "") || (certPath != "" && keyPath == "") {
-			fmt.Println("请同时提供新的SSL证书和密钥，或不提供以使用现有的SSL证书。")
+			pterm.Error.Println("如果需要更新SSL证书，请同时提供 --cert 和 --key 参数。")
+			os.Exit(1)
 			return
 		}
 		isUpdateSll := false
@@ -120,7 +145,8 @@ var sslCmd = &cobra.Command{
 		if certPath != "" && keyPath != "" {
 			certStr2, keyStr2, err := readCertificateAndKeyFiles(certPath, keyPath)
 			if err != nil {
-				fmt.Println(err)
+				pterm.Error.Printf("读取证书或密钥文件时出错: %v\n", err)
+				os.Exit(1)
 				return
 			}
 			certStr = certStr2
@@ -137,26 +163,57 @@ var sslCmd = &cobra.Command{
 		}
 		response, err := client.ListCname(cmd.Context(), request)
 		if err != nil {
-			fmt.Printf("Error listing CNAMEs: %v\n", err)
+			pterm.Error.Printf("无法列出CNAMEs: %v\n", err)
+			os.Exit(1)
 			return
 		}
 
-		printCnameList(response)
+		if !quiet {
+			printCnameList(response)
+		}
 
 		if len(response.Cnames) == 0 {
+			if quiet {
+				pterm.Error.Println("没有配置CNAME。请先配置CNAME。")
+			}
+			os.Exit(1)
 			return
 		}
 		if !isUpdateSll {
 			return
 		}
-		fmt.Println("正在更新CNAME的SSL证书...")
+
+		var domainIndex int = 0
+		domain := cmd.Flag("domain").Value.String()
+
+		if domain != "" {
+			// 检查domain是否在response.Cnames列表里
+			domainIndex = -1
+			for i, cname := range response.Cnames {
+				if *cname.Domain == domain {
+					domainIndex = i
+					break
+				}
+			}
+
+			if domainIndex == -1 {
+				fmt.Printf("指定的域名 %s 不存在于CNAME列表中。\n", domain)
+				os.Exit(1)
+				return
+			}
+		}
+
+		if !quiet {
+			fmt.Println("正在更新CNAME的SSL证书...")
+		}
+
 		forceUpdate := true // 强制更新SSL证书
 		updateRequest := &oss.PutCnameRequest{
 			Bucket: &bucket,
 			BucketCnameConfiguration: &oss.BucketCnameConfiguration{
-				Domain: response.Cnames[0].Domain,
+				Domain: response.Cnames[domainIndex].Domain,
 				CertificateConfiguration: &oss.CertificateConfiguration{
-					PreviousCertId: response.Cnames[0].Certificate.CertId,
+					PreviousCertId: response.Cnames[domainIndex].Certificate.CertId,
 					Certificate:    &certStr,
 					PrivateKey:     &keyStr,
 					Force:          &forceUpdate,
@@ -167,25 +224,27 @@ var sslCmd = &cobra.Command{
 		_, err = client.PutCname(cmd.Context(), updateRequest)
 		if err != nil {
 			fmt.Printf("Error updating CNAME SSL certificate: %v\n", err)
+			os.Exit(1)
 			return
 		}
 
-		fmt.Println("SSL证书已成功更新。")
+		if !quiet {
+			fmt.Println("SSL证书已成功更新。")
+		}
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(sslCmd)
-
-	// Here you will define your flags and configuration settings.
-
 	// 添加region参数
 	// 该参数是可选的，用于指定OSS服务的区域，默认为"cn-shanghai"
-	sslCmd.Flags().String("region", "cn-shanghai", "OSS region")
+	sslCmd.Flags().StringP("region", "R", "cn-shanghai", "OSS region")
 	// 添加bucket参数
 	// 该参数是必需的，用于指定要操作的OSS Bucket名称
-	sslCmd.Flags().String("bucket", "", "Bucket name")
+	sslCmd.Flags().StringP("bucket", "B", "", "Bucket name")
 	sslCmd.MarkFlagRequired("bucket") // 确保bucket参数是必需的
+
+	sslCmd.Flags().StringP("domain", "D", "", "指定要更新的CNAME域名，如果不指定，则默认使用第一个CNAME域名")
 
 	// 指定新的SSL证书的路径
 	sslCmd.Flags().String("cert", "", "新的SSL证书的证书文件路径")
@@ -194,4 +253,7 @@ func init() {
 	// 确保cert和key参数是可选的
 	sslCmd.MarkFlagFilename("cert", "pem", "crt") // 确保cert参数是文件名格式
 	sslCmd.MarkFlagFilename("key", "pem", "key")  // 确保key参数是文件名格式
+
+	// 添加quiet参数
+	sslCmd.Flags().BoolP("quiet", "q", false, "启用安静模式，仅输出错误信息")
 }

@@ -52,3 +52,11 @@ go env -w GOPROXY=https://goproxy.cn,direct ; go mod tidy ; go build # 编译
   ]
 }
 ```
+
+## 更新日志
+
+### v1.0.1
+
+* 添加了多域名支持 `--domain`
+* 添加了静默模式 `--quiet`、`-q`
+* 发生错误的时候返回错误码
