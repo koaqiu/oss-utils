@@ -30,7 +30,9 @@ jobs:
       - name: Cross compile
         run: |
           mkdir -p build
+          # 将 GIT TAG 注入二进制的 version 变量，便于运行时通过 -v/--version 显示
           ~/go/bin/gox -osarch="windows/amd64 windows/386 linux/amd64" \
+              -ldflags "-X 'github.com/koaqiu/oss-utils/cmd.version=${{ steps.meta.outputs.version }}'" \
               -output="build/${{ steps.meta.outputs.project_name }}-${{ steps.meta.outputs.version }}_{{.OS}}_{{.Arch}}"
       
       - name: Create Release

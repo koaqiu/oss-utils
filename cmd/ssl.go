@@ -81,6 +81,23 @@ func printCnameList(response *oss.ListCnameResult) {
 	pterm.DefaultTable.WithHasHeader().WithData(tableData).Render()
 }
 
+func getCredentialsProvider(accessKeyID, accessKeySecret string) (credentials.CredentialsProvider, error) {
+	// 如果同时提供 accessKeyID 和 accessKeySecret，使用静态凭证提供者
+	if accessKeyID != "" || accessKeySecret != "" {
+		if accessKeyID == "" || accessKeySecret == "" {
+			return nil, fmt.Errorf("oss access id 和 secret 必须同时提供，或者都不提供以使用环境变量")
+		}
+		return credentials.NewStaticCredentialsProvider(accessKeyID, accessKeySecret, ""), nil
+	}
+
+	// 未通过参数提供，则检查环境变量是否存在
+	if os.Getenv("OSS_ACCESS_KEY_ID") == "" || os.Getenv("OSS_ACCESS_KEY_SECRET") == "" {
+		return nil, fmt.Errorf("请提供 OSS Access Key ID 和 Secret，或者设置环境变量 OSS_ACCESS_KEY_ID 和 OSS_ACCESS_KEY_SECRET")
+	}
+
+	return credentials.NewEnvironmentVariableCredentialsProvider(), nil
+}
+
 // 修改Run函数以支持quiet模式
 var sslCmd = &cobra.Command{
 	Use:   "ssl",
@@ -90,8 +107,14 @@ var sslCmd = &cobra.Command{
 		// 获取quiet标志的值
 		quiet, _ := cmd.Flags().GetBool("quiet")
 
-		if os.Getenv("OSS_ACCESS_KEY_ID") == "" || os.Getenv("OSS_ACCESS_KEY_SECRET") == "" {
-			fmt.Println("请设置环境变量 OSS_ACCESS_KEY_ID 和 OSS_ACCESS_KEY_SECRET")
+		// 支持通过命令行参数传入 Access Key，如果未传入则尝试从环境变量读取
+		accessKeyID := cmd.Flag("oss-access-id").Value.String()
+		accessKeySecret := cmd.Flag("oss-access-secret").Value.String()
+
+		// 校验并创建凭证提供者（支持传入或回退到环境变量）
+		credProvider, credErr := getCredentialsProvider(accessKeyID, accessKeySecret)
+		if credErr != nil {
+			pterm.Error.Println(credErr)
 			os.Exit(1)
 			return
 		}
@@ -155,7 +178,7 @@ var sslCmd = &cobra.Command{
 		}
 
 		cfg := oss.LoadDefaultConfig().
-			WithCredentialsProvider(credentials.NewEnvironmentVariableCredentialsProvider()).
+			WithCredentialsProvider(credProvider).
 			WithRegion(region)
 		client := oss.NewClient(cfg)
 		request := &oss.ListCnameRequest{
@@ -245,6 +268,11 @@ func init() {
 	sslCmd.MarkFlagRequired("bucket") // 确保bucket参数是必需的
 
 	sslCmd.Flags().StringP("domain", "D", "", "指定要更新的CNAME域名，如果不指定，则默认使用第一个CNAME域名")
+
+	// OSS AppId Secret参数
+	// 这些参数是可选的，如果未提供，则从环境变量中读取
+	sslCmd.Flags().String("oss-access-id", "", "OSS Access Key ID (可选，如果未提供则从环境变量读取)")
+	sslCmd.Flags().String("oss-access-secret", "", "OSS Access Key Secret (可选，如果未提供则从环境变量读取)")
 
 	// 指定新的SSL证书的路径
 	sslCmd.Flags().String("cert", "", "新的SSL证书的证书文件路径")
